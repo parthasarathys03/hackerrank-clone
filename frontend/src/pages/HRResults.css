@@ -1,0 +1,132 @@
+.hr-results-page {
+  min-height: 100vh;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.hr-header {
+  background-color: #2d2d30;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.hr-header-left { display: flex; align-items: center; gap: 20px; }
+.hr-header h1 { font-size: 20px; font-weight: 600; color: #fff; margin: 0; }
+.hr-user-info { display: flex; align-items: center; gap: 15px; color: #d4d4d4; }
+
+.hr-btn-back {
+  padding: 6px 14px;
+  background-color: #444;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.hr-btn-back:hover { background-color: #555; }
+
+.hr-btn-logout {
+  padding: 6px 16px;
+  background-color: #444;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.hr-btn-logout:hover { background-color: #555; }
+
+.hr-results-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 30px 20px;
+}
+
+.hr-no-results { color: #888; text-align: center; padding: 50px; font-size: 16px; }
+
+/* Candidate Card */
+.hr-candidate-card {
+  background-color: #252526;
+  border: 1px solid #3e3e42;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.hr-candidate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.hr-candidate-info h2 { color: #fff; font-size: 18px; margin: 0 0 4px 0; }
+.hr-candidate-email { color: #888; font-size: 13px; }
+
+.hr-candidate-stats { display: flex; align-items: center; gap: 15px; }
+
+.hr-avg-score { color: #ccc; font-size: 14px; font-weight: 500; }
+
+/* Category badges */
+.hr-category-badge {
+  padding: 5px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cat-good { background-color: #1a3a1a; color: #4ec9b0; border: 1px solid #2a5a2a; }
+.cat-medium { background-color: #3a3a1a; color: #dcdcaa; border: 1px solid #5a5a2a; }
+.cat-average { background-color: #3a1a1a; color: #f48771; border: 1px solid #5a2a2a; }
+
+/* Table */
+.hr-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.hr-results-table th {
+  text-align: left;
+  padding: 10px 12px;
+  color: #888;
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  border-bottom: 1px solid #3e3e42;
+}
+
+.hr-results-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #2d2d30;
+}
+
+.hr-td-problem { color: #569cd6; font-weight: 500; }
+.hr-td-date { color: #888; font-size: 12px; }
+
+.hr-score { font-weight: 600; }
+.hr-score.perfect { color: #4ec9b0; }
+.hr-score.good { color: #dcdcaa; }
+.hr-score.low { color: #f48771; }
+
+.hr-cat-inline {
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Timer in coding page */
+.timer {
+  font-family: 'Consolas', 'Courier New', monospace;
+  background-color: #333;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #4ec9b0;
+}
