@@ -18,7 +18,7 @@ def init_db():
         )
     """)
     
-    # Submissions table
+    # Submissions table (with verdict and execution_time_ms)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS submissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,12 +28,15 @@ def init_db():
             passed_tests INTEGER NOT NULL,
             total_tests INTEGER NOT NULL,
             score REAL NOT NULL,
+            verdict TEXT DEFAULT 'Pending',
+            execution_time_ms REAL DEFAULT 0,
+            time_taken INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     """)
     
-    # HR Results table (final table for HR)
+    # HR Results table (final table for HR with verdict and execution time)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS hr_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +48,8 @@ def init_db():
             passed_tests INTEGER NOT NULL,
             total_tests INTEGER NOT NULL,
             best_submission_id INTEGER NOT NULL,
+            verdict TEXT DEFAULT 'Pending',
+            execution_time_ms REAL DEFAULT 0,
             time_taken INTEGER DEFAULT 0,
             updated_at TEXT NOT NULL,
             UNIQUE(user_id, problem_id),
@@ -53,15 +58,21 @@ def init_db():
         )
     """)
 
-    # Add time_taken column if it doesn't exist (migration for existing DB)
-    try:
-        cursor.execute("ALTER TABLE submissions ADD COLUMN time_taken INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE hr_results ADD COLUMN time_taken INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    # Migration: Add new columns if they don't exist (for existing DB)
+    migration_columns = [
+        ("submissions", "time_taken", "INTEGER DEFAULT 0"),
+        ("submissions", "verdict", "TEXT DEFAULT 'Pending'"),
+        ("submissions", "execution_time_ms", "REAL DEFAULT 0"),
+        ("hr_results", "time_taken", "INTEGER DEFAULT 0"),
+        ("hr_results", "verdict", "TEXT DEFAULT 'Pending'"),
+        ("hr_results", "execution_time_ms", "REAL DEFAULT 0"),
+    ]
+    
+    for table, column, col_type in migration_columns:
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     conn.commit()
     conn.close()

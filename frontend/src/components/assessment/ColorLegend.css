@@ -1,0 +1,134 @@
+/* Color Legend Styles */
+.color-legend {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 3px solid #94a3b8;
+  padding: 24px 28px;
+  margin-bottom: 28px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+}
+
+.legend-title {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-title::before {
+  content: '🎨';
+  font-size: 20px;
+}
+
+.legend-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+}
+
+.legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+/* Score Chips in Legend */
+.legend-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.chip-5 {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
+
+.chip-4 {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.chip-3 {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.chip-2 {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+}
+
+.chip-1 {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+/* Column Bars in Legend */
+.legend-bar {
+  width: 40px;
+  height: 24px;
+  border-radius: 6px;
+  display: inline-block;
+  border: 2px solid;
+}
+
+.bar-python {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border-color: #3b82f6;
+}
+
+.bar-sql {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #f59e0b;
+}
+
+.bar-total {
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+  border-color: #7c3aed;
+}
+
+.bar-easy {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  border-color: #10b981;
+}
+
+.bar-medium {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #f59e0b;
+}
+
+.bar-hard {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border-color: #ef4444;
+}

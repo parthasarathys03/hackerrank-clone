@@ -9,6 +9,15 @@ function getCategory(score) {
   return { label: 'Average', className: 'cat-average' }
 }
 
+function getVerdictClass(verdict) {
+  switch (verdict) {
+    case 'Accepted': return 'verdict-accepted'
+    case 'Partial': return 'verdict-partial'
+    case 'Failed': return 'verdict-failed'
+    default: return 'verdict-pending'
+  }
+}
+
 function formatTime(seconds) {
   if (!seconds || seconds === 0) return '--'
   const m = Math.floor(seconds / 60)
@@ -17,10 +26,17 @@ function formatTime(seconds) {
   return `${m}m ${s}s`
 }
 
+function formatExecTime(ms) {
+  if (!ms || ms === 0) return '--'
+  if (ms < 1000) return `${ms.toFixed(0)}ms`
+  return `${(ms / 1000).toFixed(2)}s`
+}
+
 function HRResults() {
   const navigate = useNavigate()
   const [results, setResults] = useState([])
   const [hrName, setHrName] = useState('')
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     const loggedIn = localStorage.getItem('hr_logged_in')
@@ -50,6 +66,28 @@ function HRResults() {
     navigate('/hr')
   }
 
+  const handleDownloadPDF = async () => {
+    setDownloading(true)
+    try {
+      const response = await api.get('/hr/report/pdf', {
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `candidate_report_${new Date().toISOString().split('T')[0]}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to download PDF', err)
+      alert('Failed to generate PDF report')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   // Group results by user
   const userMap = {}
   results.forEach(r => {
@@ -74,6 +112,13 @@ function HRResults() {
         <div className="hr-header-left">
           <h1>Candidate Results</h1>
           <button onClick={() => navigate('/hr/dashboard')} className="hr-btn-back">Dashboard</button>
+          <button 
+            onClick={handleDownloadPDF} 
+            className="hr-btn-pdf"
+            disabled={downloading || results.length === 0}
+          >
+            {downloading ? 'Generating...' : 'Download PDF Report'}
+          </button>
         </div>
         <div className="hr-user-info">
           <span>{hrName}</span>
@@ -106,14 +151,14 @@ function HRResults() {
                     <th>Problem</th>
                     <th>Score</th>
                     <th>Test Cases</th>
+                    <th>Verdict</th>
+                    <th>Exec Time</th>
                     <th>Time Taken</th>
-                    <th>Category</th>
                     <th>Submitted</th>
                   </tr>
                 </thead>
                 <tbody>
                   {user.problems.map((p) => {
-                    const cat = getCategory(p.best_score)
                     return (
                       <tr key={p.problem_id}>
                         <td className="hr-td-problem">{p.problem_id}</td>
@@ -123,8 +168,13 @@ function HRResults() {
                           </span>
                         </td>
                         <td>{p.passed_tests}/{p.total_tests}</td>
+                        <td>
+                          <span className={`hr-verdict ${getVerdictClass(p.verdict)}`}>
+                            {p.verdict}
+                          </span>
+                        </td>
+                        <td>{formatExecTime(p.execution_time_ms)}</td>
                         <td>{formatTime(p.time_taken)}</td>
-                        <td><span className={`hr-cat-inline ${cat.className}`}>{cat.label}</span></td>
                         <td className="hr-td-date">{new Date(p.updated_at).toLocaleString()}</td>
                       </tr>
                     )

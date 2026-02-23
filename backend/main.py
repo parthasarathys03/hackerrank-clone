@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List
 import sqlite3
@@ -7,7 +8,16 @@ import uuid
 from datetime import datetime
 import asyncio
 import sys
+import io
 from contextlib import asynccontextmanager
+
+# PDF generation imports
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # Fix Windows event loop for subprocess BEFORE any asyncio operations
 if sys.platform == 'win32':
@@ -15,8 +25,9 @@ if sys.platform == 'win32':
 
 from database import init_db, get_db
 from models import LoginRequest, RunCodeRequest, SubmitCodeRequest, RunSqlRequest, SubmitSqlRequest, StartExamRequest, ExamSubmitRequest
-from runner import PythonRunner
+from runner import PythonRunner, normalize_output, compare_outputs, get_verdict
 from problems import get_problem, list_problems, list_problems_by_language, get_exam_summary, PROBLEMS
+from excel_service import read_all_results, add_result, export_excel, create_sample_data, ensure_excel_exists
 
 # Concurrency semaphore for 25 concurrent executions
 execution_semaphore = asyncio.Semaphore(25)
@@ -29,7 +40,7 @@ init_db()
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,22 +115,27 @@ async def submit_code(request: SubmitCodeRequest, db: sqlite3.Connection = Depen
     passed_tests = 0
     total_tests = len(problem["test_cases"])
     failed_details = []
+    total_execution_time = 0
     
     async with execution_semaphore:
         for i, test_case in enumerate(problem["test_cases"]):
+            start_time = datetime.now()
             result = await runner.run_with_input(request.code, test_case["input"])
+            execution_time = (datetime.now() - start_time).total_seconds() * 1000  # ms
+            total_execution_time += execution_time
             
             if result["status"] == "success":
-                expected_output = test_case["output"].strip()
-                actual_output = result["stdout"].strip()
+                expected_output = test_case["output"]
+                actual_output = result["stdout"]
                 
-                if actual_output == expected_output:
+                # Use normalized comparison to avoid false negatives
+                if compare_outputs(actual_output, expected_output):
                     passed_tests += 1
                 else:
                     failed_details.append({
                         "test_case": i + 1,
-                        "expected": expected_output,
-                        "actual": actual_output
+                        "expected": normalize_output(expected_output),
+                        "actual": normalize_output(actual_output)
                     })
             else:
                 # Clean error message (no raw tracebacks in UI)
@@ -137,13 +153,17 @@ async def submit_code(request: SubmitCodeRequest, db: sqlite3.Connection = Depen
     # Calculate current submission score
     score = (passed_tests / total_tests) * 100
     
+    # Determine verdict
+    verdict = get_verdict(passed_tests, total_tests)
+    avg_execution_time = total_execution_time / total_tests if total_tests > 0 else 0
+    
     # Save submission
     cursor = db.cursor()
     cursor.execute(
         """INSERT INTO submissions
-        (user_id, problem_id, code, passed_tests, total_tests, score, time_taken, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, request.problem_id, request.code, passed_tests, total_tests, score, request.time_taken, datetime.now().isoformat())
+        (user_id, problem_id, code, passed_tests, total_tests, score, verdict, execution_time_ms, time_taken, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, request.problem_id, request.code, passed_tests, total_tests, score, verdict, avg_execution_time, request.time_taken, datetime.now().isoformat())
     )
     submission_id = cursor.lastrowid
     db.commit()
@@ -167,9 +187,9 @@ async def submit_code(request: SubmitCodeRequest, db: sqlite3.Connection = Depen
 
         cursor.execute(
             """INSERT OR REPLACE INTO hr_results
-            (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, time_taken, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, user_info[0], user_info[1], request.problem_id, score, passed_tests, total_tests, submission_id, request.time_taken, datetime.now().isoformat())
+            (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, verdict, execution_time_ms, time_taken, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, user_info[0], user_info[1], request.problem_id, score, passed_tests, total_tests, submission_id, verdict, avg_execution_time, request.time_taken, datetime.now().isoformat())
         )
         db.commit()
 
@@ -182,14 +202,114 @@ async def submit_code(request: SubmitCodeRequest, db: sqlite3.Connection = Depen
         "score": score,
         "best_score": score if is_new_best else current_best_score,
         "is_new_best": is_new_best,
+        "verdict": verdict,
+        "execution_time_ms": round(avg_execution_time, 2),
         "failed_details": failed_details
     }
+
+
+# --- Assessment Dashboard API Endpoints ---
+
+# Initialize Excel file with sample data on startup
+ensure_excel_exists()
+
+
+class AssessmentResultRequest(BaseModel):
+    """Request body for posting new assessment result"""
+    candidate_id: str
+    name: str
+    email: str
+    phone: str
+    test_date: str
+    login_time: str
+    submit_time: str
+    submission_type: str
+    time_taken_min: int
+    total_questions: int
+    python_questions: int
+    sql_questions: int
+    python_score: float
+    sql_score: float
+    problem_testcases: dict
+    problem_scores: dict
+
+
+@app.get("/api/assessment/results")
+async def get_assessment_results(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    verdict: Optional[str] = None,
+    submission_type: Optional[str] = None
+):
+    """
+    Get all assessment results with optional filters.
+    Query params: date_from, date_to, verdict (Good|Average|Below Average), submission_type (Manual|Auto)
+    """
+    try:
+        results = read_all_results(date_from, date_to, verdict, submission_type)
+        return {
+            "success": True,
+            "total": len(results),
+            "data": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading results: {str(e)}")
+
+
+@app.post("/api/assessment/results")
+async def post_assessment_result(request: AssessmentResultRequest):
+    """
+    Add a new assessment result. 
+    Auto-calculates: overall_score, overall_percentage, python_score_percentage, sql_score_percentage, overall_verdict
+    """
+    try:
+        data = request.model_dump()
+        result = add_result(data)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding result: {str(e)}")
+
+
+@app.get("/api/assessment/export")
+async def export_assessment_results(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    verdict: Optional[str] = None,
+    submission_type: Optional[str] = None
+):
+    """
+    Export filtered assessment results as Excel file.
+    Returns downloadable Excel with formatted sheets.
+    """
+    try:
+        excel_bytes = export_excel(date_from, date_to, verdict, submission_type)
+        filename = f"HR_Assessment_Report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        
+        return StreamingResponse(
+            io.BytesIO(excel_bytes),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting results: {str(e)}")
+
+
+@app.post("/api/assessment/init-sample-data")
+async def init_sample_data():
+    """Initialize Excel file with sample data for 5 candidates (for testing)"""
+    try:
+        count = create_sample_data()
+        return {"success": True, "message": f"Created sample data for {count} candidates"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating sample data: {str(e)}")
 
 @app.get("/hr/results")
 async def get_hr_results(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(
-        """SELECT name, email, problem_id, best_score, passed_tests, total_tests, time_taken, updated_at
+        """SELECT name, email, problem_id, best_score, passed_tests, total_tests, verdict, execution_time_ms, time_taken, updated_at
         FROM hr_results
         ORDER BY best_score DESC, name ASC"""
     )
@@ -204,11 +324,176 @@ async def get_hr_results(db: sqlite3.Connection = Depends(get_db)):
             "best_score": row[3],
             "passed_tests": row[4],
             "total_tests": row[5],
-            "time_taken": row[6] or 0,
-            "updated_at": row[7]
+            "verdict": row[6] or "Pending",
+            "execution_time_ms": row[7] or 0,
+            "time_taken": row[8] or 0,
+            "updated_at": row[9]
         }
         for row in results
     ]
+
+
+def generate_pdf_report(candidates_data: list) -> bytes:
+    """Generate a professional PDF report of candidate results"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        alignment=TA_CENTER,
+        spaceAfter=30,
+        textColor=colors.HexColor('#1a1a2e')
+    )
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        spaceAfter=12,
+        textColor=colors.HexColor('#16213e')
+    )
+    normal_style = styles['Normal']
+    
+    elements = []
+    
+    # Title
+    elements.append(Paragraph("Coding Assessment Report", title_style))
+    elements.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", normal_style))
+    elements.append(Spacer(1, 30))
+    
+    # Summary section
+    total_candidates = len(candidates_data)
+    if total_candidates > 0:
+        avg_score = sum(c['avg_score'] for c in candidates_data) / total_candidates
+        accepted_count = sum(1 for c in candidates_data if any(p['verdict'] == 'Accepted' for p in c['problems']))
+    else:
+        avg_score = 0
+        accepted_count = 0
+    
+    elements.append(Paragraph("Executive Summary", heading_style))
+    summary_data = [
+        ["Total Candidates", str(total_candidates)],
+        ["Average Score", f"{avg_score:.1f}%"],
+        ["Full Solutions", str(accepted_count)],
+    ]
+    summary_table = Table(summary_data, colWidths=[2*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e8e8e8')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 30))
+    
+    # Candidate details
+    for candidate in candidates_data:
+        elements.append(Paragraph(f"Candidate: {candidate['name']}", heading_style))
+        elements.append(Paragraph(f"Email: {candidate['email']}", normal_style))
+        elements.append(Paragraph(f"Overall Score: {candidate['avg_score']:.1f}%", normal_style))
+        elements.append(Spacer(1, 10))
+        
+        # Problem results table
+        table_data = [["Problem", "Score", "Tests", "Verdict", "Time"]]
+        for prob in candidate['problems']:
+            verdict_text = prob['verdict']
+            table_data.append([
+                prob['problem_id'][:20],
+                f"{prob['best_score']:.1f}%",
+                f"{prob['passed_tests']}/{prob['total_tests']}",
+                verdict_text,
+                f"{prob['time_taken']}s" if prob['time_taken'] else "--"
+            ])
+        
+        t = Table(table_data, colWidths=[1.8*inch, 0.8*inch, 0.8*inch, 1*inch, 0.8*inch])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9fa')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 20))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+@app.get("/hr/report/pdf")
+async def get_hr_report_pdf(db: sqlite3.Connection = Depends(get_db)):
+    """Generate and download PDF report of all candidate results"""
+    cursor = db.cursor()
+    cursor.execute(
+        """SELECT name, email, problem_id, best_score, passed_tests, total_tests, verdict, execution_time_ms, time_taken, updated_at
+        FROM hr_results
+        ORDER BY name ASC, problem_id ASC"""
+    )
+    results = cursor.fetchall()
+    cursor.close()
+    
+    # Group by candidate
+    candidates = {}
+    for row in results:
+        email = row[1]
+        if email not in candidates:
+            candidates[email] = {
+                'name': row[0],
+                'email': email,
+                'problems': [],
+                'total_score': 0,
+                'count': 0
+            }
+        candidates[email]['problems'].append({
+            'problem_id': row[2],
+            'best_score': row[3],
+            'passed_tests': row[4],
+            'total_tests': row[5],
+            'verdict': row[6] or 'Pending',
+            'execution_time_ms': row[7] or 0,
+            'time_taken': row[8] or 0,
+            'updated_at': row[9]
+        })
+        candidates[email]['total_score'] += row[3]
+        candidates[email]['count'] += 1
+    
+    # Calculate average scores
+    candidates_data = []
+    for c in candidates.values():
+        c['avg_score'] = c['total_score'] / c['count'] if c['count'] > 0 else 0
+        candidates_data.append(c)
+    
+    # Sort by average score descending
+    candidates_data.sort(key=lambda x: x['avg_score'], reverse=True)
+    
+    # Generate PDF
+    pdf_bytes = generate_pdf_report(candidates_data)
+    
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=candidate_report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+        }
+    )
+
 
 # Language-specific problem routes - MUST be before /problems/{problem_id}
 @app.get("/problems/python")
@@ -410,6 +695,7 @@ async def submit_exam(request: ExamSubmitRequest, db: sqlite3.Connection = Depen
         
         problem_marks = problem.get("marks", 10)
         total_marks += problem_marks
+        total_execution_time = 0
         
         # Evaluate based on language
         if answer.language == "sql":
@@ -419,7 +705,11 @@ async def submit_exam(request: ExamSubmitRequest, db: sqlite3.Connection = Depen
             
             for test_case in problem.get("test_cases", []):
                 try:
+                    start_time = datetime.now()
                     columns, rows = execute_sql_problem_query(problem, answer.code)
+                    execution_time = (datetime.now() - start_time).total_seconds() * 1000
+                    total_execution_time += execution_time
+                    
                     expected_columns = test_case.get("expected_columns", [])
                     expected_rows = test_case.get("expected_rows", [])
                     if compare_result_sets(columns, rows, expected_columns, expected_rows):
@@ -429,26 +719,35 @@ async def submit_exam(request: ExamSubmitRequest, db: sqlite3.Connection = Depen
             
             score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
         else:
-            # Python evaluation
+            # Python evaluation with normalized comparison
             runner = PythonRunner()
             passed_tests = 0
             total_tests = len(problem.get("test_cases", []))
             
             async with execution_semaphore:
                 for test_case in problem.get("test_cases", []):
+                    start_time = datetime.now()
                     result = await runner.run_with_input(answer.code, test_case["input"])
+                    execution_time = (datetime.now() - start_time).total_seconds() * 1000
+                    total_execution_time += execution_time
+                    
                     if result["status"] == "success":
-                        if result["stdout"].strip() == test_case["output"].strip():
+                        # Use normalized comparison
+                        if compare_outputs(result["stdout"], test_case["output"]):
                             passed_tests += 1
             
             score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
         
+        # Determine verdict and average execution time
+        verdict = get_verdict(passed_tests, total_tests)
+        avg_execution_time = total_execution_time / total_tests if total_tests > 0 else 0
+        
         # Save submission
         cursor.execute(
             """INSERT INTO submissions
-            (user_id, problem_id, code, passed_tests, total_tests, score, time_taken, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, answer.problem_id, answer.code, passed_tests, total_tests, score, time_taken, datetime.now().isoformat())
+            (user_id, problem_id, code, passed_tests, total_tests, score, verdict, execution_time_ms, time_taken, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, answer.problem_id, answer.code, passed_tests, total_tests, score, verdict, avg_execution_time, time_taken, datetime.now().isoformat())
         )
         submission_id = cursor.lastrowid
         
@@ -463,9 +762,9 @@ async def submit_exam(request: ExamSubmitRequest, db: sqlite3.Connection = Depen
         if score > current_best:
             cursor.execute(
                 """INSERT OR REPLACE INTO hr_results
-                (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, time_taken, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (user_id, user_info[0], user_info[1], answer.problem_id, score, passed_tests, total_tests, submission_id, time_taken, datetime.now().isoformat())
+                (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, verdict, execution_time_ms, time_taken, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, user_info[0], user_info[1], answer.problem_id, score, passed_tests, total_tests, submission_id, verdict, avg_execution_time, time_taken, datetime.now().isoformat())
             )
         
         total_score += (score / 100) * problem_marks
@@ -473,7 +772,9 @@ async def submit_exam(request: ExamSubmitRequest, db: sqlite3.Connection = Depen
             "problem_id": answer.problem_id,
             "passed_tests": passed_tests,
             "total_tests": total_tests,
-            "score": score
+            "score": score,
+            "verdict": verdict,
+            "execution_time_ms": round(avg_execution_time, 2)
         })
     
     db.commit()
@@ -605,11 +906,15 @@ async def submit_sql(request: SubmitSqlRequest, db: sqlite3.Connection = Depends
     passed_tests = 0
     total_tests = len(test_cases)
     failed_details = []
+    total_execution_time = 0
 
     async with execution_semaphore:
         for idx, test_case in enumerate(test_cases):
             try:
+                start_time = datetime.now()
                 columns, rows = execute_sql_problem_query(problem, request.query)
+                execution_time = (datetime.now() - start_time).total_seconds() * 1000
+                total_execution_time += execution_time
             except HTTPException as e:
                 failed_details.append({
                     "test_case": idx + 1,
@@ -636,14 +941,18 @@ async def submit_sql(request: SubmitSqlRequest, db: sqlite3.Connection = Depends
                 })
 
     score = (passed_tests / total_tests) * 100
+    
+    # Determine verdict and average execution time
+    verdict = get_verdict(passed_tests, total_tests)
+    avg_execution_time = total_execution_time / total_tests if total_tests > 0 else 0
 
     # Store submission (same table as Python)
     cursor = db.cursor()
     cursor.execute(
         """INSERT INTO submissions
-        (user_id, problem_id, code, passed_tests, total_tests, score, time_taken, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, request.problem_id, request.query, passed_tests, total_tests, score, request.time_taken, datetime.now().isoformat())
+        (user_id, problem_id, code, passed_tests, total_tests, score, verdict, execution_time_ms, time_taken, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, request.problem_id, request.query, passed_tests, total_tests, score, verdict, avg_execution_time, request.time_taken, datetime.now().isoformat())
     )
     submission_id = cursor.lastrowid
     db.commit()
@@ -665,9 +974,9 @@ async def submit_sql(request: SubmitSqlRequest, db: sqlite3.Connection = Depends
 
         cursor.execute(
             """INSERT OR REPLACE INTO hr_results
-            (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, time_taken, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, user_info[0], user_info[1], request.problem_id, score, passed_tests, total_tests, submission_id, request.time_taken, datetime.now().isoformat())
+            (user_id, name, email, problem_id, best_score, passed_tests, total_tests, best_submission_id, verdict, execution_time_ms, time_taken, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, user_info[0], user_info[1], request.problem_id, score, passed_tests, total_tests, submission_id, verdict, avg_execution_time, request.time_taken, datetime.now().isoformat())
         )
         db.commit()
 
@@ -680,5 +989,7 @@ async def submit_sql(request: SubmitSqlRequest, db: sqlite3.Connection = Depends
         "score": score,
         "best_score": score if is_new_best else current_best_score,
         "is_new_best": is_new_best,
+        "verdict": verdict,
+        "execution_time_ms": round(avg_execution_time, 2),
         "failed_details": failed_details
     }

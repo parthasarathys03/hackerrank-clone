@@ -13,6 +13,7 @@ import SubmissionComplete from './pages/SubmissionComplete'
 import HRLogin from './pages/HRLogin'
 import HRDashboard from './pages/HRDashboard'
 import HRResults from './pages/HRResults'
+import AssessmentDashboard from './pages/AssessmentDashboard'
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
         <Route path="/hr" element={<HRLogin />} />
         <Route path="/hr/dashboard" element={<HRDashboard />} />
         <Route path="/hr/results" element={<HRResults />} />
+        <Route path="/dashboard/assessment" element={<AssessmentDashboard />} />
       </Routes>
     </BrowserRouter>
   )

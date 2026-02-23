@@ -2,7 +2,69 @@ import subprocess
 import asyncio
 import sys
 import os
-from typing import Dict
+import re
+import time
+from typing import Dict, Tuple
+
+
+def normalize_output(text: str) -> str:
+    """
+    Normalize output for comparison - CRITICAL for avoiding false negatives.
+    
+    This function handles all common formatting differences that should NOT
+    cause a correct answer to fail:
+    - Windows/Mac/Linux newline differences
+    - Trailing spaces per line
+    - Blank lines at start/end
+    - Final newline presence/absence
+    - Multiple consecutive empty lines
+    """
+    if text is None:
+        return ""
+    
+    # Step 1: Normalize all newline formats to \n
+    # Windows: \r\n -> \n
+    # Old Mac: \r -> \n
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    
+    # Step 2: Remove trailing spaces from each line
+    lines = text.split('\n')
+    lines = [line.rstrip() for line in lines]
+    
+    # Step 3: Join back
+    text = '\n'.join(lines)
+    
+    # Step 4: Collapse multiple consecutive empty lines into one
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # Step 5: Strip leading/trailing whitespace (including final newlines)
+    text = text.strip()
+    
+    return text
+
+
+def compare_outputs(actual: str, expected: str) -> bool:
+    """
+    Compare two outputs after normalization.
+    This is the PRIMARY comparison function - use this EVERYWHERE.
+    """
+    return normalize_output(actual) == normalize_output(expected)
+
+
+def get_verdict(passed_tests: int, total_tests: int) -> str:
+    """
+    Determine verdict based on test results.
+    Returns: 'Accepted', 'Partial', or 'Failed'
+    """
+    if total_tests == 0:
+        return "Failed"
+    if passed_tests == total_tests:
+        return "Accepted"
+    elif passed_tests > 0:
+        return "Partial"
+    else:
+        return "Failed"
+
 
 class PythonRunner:
     """Python code execution runner with timeout and output capture"""

@@ -148,6 +148,7 @@ function HRDashboard() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <h1>HR Dashboard</h1>
           <button onClick={() => navigate('/hr/results')} className="hr-btn-results">Candidate Results</button>
+          <button onClick={() => navigate('/dashboard/assessment')} className="hr-btn-assessment">Assessment Dashboard</button>
         </div>
         <div className="hr-user-info">
           <span>{hrName}</span>
