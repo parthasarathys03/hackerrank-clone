@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict
 
 class LoginRequest(BaseModel):
     name: str
@@ -30,3 +30,17 @@ class SubmitSqlRequest(BaseModel):
     problem_id: str
     query: str
     time_taken: int = 0
+
+# Exam session models
+class StartExamRequest(BaseModel):
+    session_id: str
+
+class ExamAnswer(BaseModel):
+    problem_id: str
+    code: str
+    language: str
+
+class ExamSubmitRequest(BaseModel):
+    session_id: str
+    answers: List[ExamAnswer]
+    auto_submit: bool = False  # True if timer expired

@@ -50,4 +50,44 @@ export const submitSql = async (sessionId, problemId, query, timeTaken) => {
   return response.data
 }
 
+// Exam session API functions
+export const getExamSummary = async () => {
+  const response = await api.get('/exam/summary')
+  return response.data
+}
+
+export const getPythonProblems = async () => {
+  const response = await api.get('/problems/python')
+  return response.data
+}
+
+export const getSqlProblems = async () => {
+  const response = await api.get('/problems/sql')
+  return response.data
+}
+
+export const startExam = async (sessionId) => {
+  const response = await api.post('/exam/start', { session_id: sessionId })
+  return response.data
+}
+
+export const getExamStatus = async (sessionId) => {
+  const response = await api.get(`/exam/status?session_id=${sessionId}`)
+  return response.data
+}
+
+export const saveExamAnswer = async (sessionId, problemId, code) => {
+  const response = await api.post(`/exam/save-answer?session_id=${sessionId}&problem_id=${problemId}&code=${encodeURIComponent(code)}`)
+  return response.data
+}
+
+export const submitExam = async (sessionId, answers, autoSubmit = false) => {
+  const response = await api.post('/exam/submit', {
+    session_id: sessionId,
+    answers: answers,
+    auto_submit: autoSubmit,
+  })
+  return response.data
+}
+
 export default api

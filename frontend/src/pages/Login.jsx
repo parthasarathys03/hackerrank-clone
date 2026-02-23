@@ -34,7 +34,7 @@ function Login() {
       localStorage.setItem('user_id', response.user_id)
       localStorage.setItem('user_name', response.name)
       localStorage.setItem('user_email', response.email)
-      navigate('/problems')
+      navigate('/dashboard')
     } catch (err) {
       setError('Login failed. Please try again.')
     }

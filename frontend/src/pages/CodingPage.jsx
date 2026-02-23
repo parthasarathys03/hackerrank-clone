@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
-import { getProblem, runCode, submitCode, runSql, submitSql } from '../api'
+import { getProblem, runCode, submitCode, runSql, submitSql, getExamStatus, submitExam } from '../api'
 import './CodingPage.css'
 
 function CodingPage() {
@@ -18,12 +18,33 @@ function CodingPage() {
   const [submitResult, setSubmitResult] = useState(null)
   const [userName, setUserName] = useState('')
   const [showInputRequired, setShowInputRequired] = useState(false)
-  const [elapsedTime, setElapsedTime] = useState(0)
-  const startTimeRef = useRef(null)
+  const [remainingTime, setRemainingTime] = useState(0)
+  const [isExamMode, setIsExamMode] = useState(false)
   const timerRef = useRef(null)
+  const autoSaveRef = useRef(null)
+
+  const handleAutoSubmit = useCallback(async () => {
+    const sessionId = localStorage.getItem('session_id')
+    const answers = JSON.parse(localStorage.getItem('exam_answers') || '{}')
+    
+    const answersList = Object.entries(answers).map(([pid, data]) => ({
+      problem_id: pid,
+      code: data.code || '',
+      language: data.language || 'python'
+    }))
+
+    try {
+      await submitExam(sessionId, answersList, true)
+      localStorage.removeItem('exam_answers')
+      localStorage.removeItem('exam_start_time')
+      localStorage.removeItem('exam_remaining')
+      navigate('/submission-complete?auto=true')
+    } catch (err) {
+      console.error('Auto submit failed', err)
+    }
+  }, [navigate])
 
   useEffect(() => {
-    // Check if user is logged in
     const name = localStorage.getItem('user_name')
 
     if (!name) {
@@ -32,42 +53,113 @@ function CodingPage() {
     }
 
     setUserName(name)
+    checkExamStatus()
     loadProblem()
 
-    // Start timer
-    startTimeRef.current = Date.now()
-    timerRef.current = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTimeRef.current) / 1000))
-    }, 1000)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
+    }
+  }, [problemId, navigate])
+
+  useEffect(() => {
+    if (isExamMode && remainingTime > 0) {
+      timerRef.current = setInterval(() => {
+        setRemainingTime(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current)
+            handleAutoSubmit()
+            return 0
+          }
+          localStorage.setItem('exam_remaining', prev - 1)
+          return prev - 1
+        })
+      }, 1000)
+    }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [problemId, navigate])
+  }, [isExamMode, remainingTime, handleAutoSubmit])
 
-  const getTimeTaken = () => {
-    return startTimeRef.current ? Math.floor((Date.now() - startTimeRef.current) / 1000) : 0
+  // Auto-save code when it changes
+  useEffect(() => {
+    if (isExamMode && problem && code !== starterCode) {
+      if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
+      
+      autoSaveRef.current = setTimeout(() => {
+        const answers = JSON.parse(localStorage.getItem('exam_answers') || '{}')
+        answers[problemId] = {
+          code: code,
+          language: problem.language
+        }
+        localStorage.setItem('exam_answers', JSON.stringify(answers))
+      }, 500) // Auto-save after 500ms of no typing
+    }
+
+    return () => {
+      if (autoSaveRef.current) clearTimeout(autoSaveRef.current)
+    }
+  }, [code, isExamMode, problemId, problem, starterCode])
+
+  const checkExamStatus = async () => {
+    try {
+      const sessionId = localStorage.getItem('session_id')
+      const status = await getExamStatus(sessionId)
+      
+      if (status.status === 'active') {
+        setIsExamMode(true)
+        setRemainingTime(status.remaining_seconds)
+      } else if (status.status === 'expired') {
+        handleAutoSubmit()
+      }
+    } catch (err) {
+      // Not in exam mode, continue normally
+      console.log('Not in exam mode')
+    }
   }
 
   const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const getTimerClass = () => {
+    if (remainingTime <= 300) return 'global-timer critical'
+    if (remainingTime <= 900) return 'global-timer warning'
+    return 'global-timer'
   }
 
   const loadProblem = async () => {
     try {
       const data = await getProblem(problemId)
       setProblem(data)
-      setCode(data.starter_code)
+      
+      // Check if there's a saved answer
+      const answers = JSON.parse(localStorage.getItem('exam_answers') || '{}')
+      if (answers[problemId]) {
+        setCode(answers[problemId].code)
+      } else {
+        setCode(data.starter_code)
+      }
       setStarterCode(data.starter_code)
-      // Only set custom input for Python problems
+      
       if (data.language === 'python') {
         setCustomInput(data.sample_input)
       }
     } catch (err) {
       setError('Failed to load problem')
       console.error(err)
+    }
+  }
+
+  const handleBack = () => {
+    if (problem?.language === 'sql') {
+      navigate('/problems/sql')
+    } else {
+      navigate('/problems/python')
     }
   }
 
@@ -79,12 +171,10 @@ function CodingPage() {
     setShowInputRequired(false)
 
     try {
-      // Handle SQL problems
       if (problem.language === 'sql') {
         const result = await runSql(problemId, code)
         
         if (result.status === 'success') {
-          // Format SQL result set as table
           let outputText = ''
           if (result.columns && result.columns.length > 0) {
             outputText += result.columns.join(' | ') + '\n'
@@ -107,10 +197,8 @@ function CodingPage() {
         return
       }
 
-      // Handle Python problems (existing logic)
       const result = await runCode(code, customInput)
       
-      // Check for INPUT_REQUIRED error
       if (result.error === 'INPUT_REQUIRED') {
         setShowInputRequired(true)
         setOutput('')
@@ -135,7 +223,6 @@ function CodingPage() {
   const handleUseSampleInput = () => {
     setCustomInput(problem.sample_input)
     setShowInputRequired(false)
-    // Automatically trigger run after setting sample input
     setTimeout(() => handleRun(), 100)
   }
 
@@ -154,44 +241,13 @@ function CodingPage() {
     setShowInputRequired(false)
 
     try {
-      // Handle SQL problems
+      let result
       if (problem.language === 'sql') {
-        const result = await submitSql(sessionId, problemId, code, getTimeTaken())
-        setSubmitResult(result)
-        
-        let outputText = `✓ Submission Complete\n\n`
-        outputText += `Current Score: ${result.score.toFixed(2)}%\n`
-        outputText += `Best Score: ${result.best_score.toFixed(2)}%\n`
-        
-        if (result.is_new_best) {
-          outputText += `🎉 New Best Score!\n\n`
-        } else {
-          outputText += `\n`
-        }
-        
-        outputText += `Passed: ${result.passed_tests}/${result.total_tests} test cases\n\n`
-        
-        if (result.failed_details && result.failed_details.length > 0) {
-          outputText += `Failed Test Cases:\n`
-          result.failed_details.forEach((detail, idx) => {
-            outputText += `\nTest Case ${detail.test_case}:\n`
-            if (detail.error) {
-              outputText += `Error: ${detail.error}\n`
-            } else {
-              outputText += `Expected: ${detail.expected}\n`
-              outputText += `Actual: ${detail.actual}\n`
-            }
-          })
-        } else {
-          outputText += `✓ All test cases passed!`
-        }
-        
-        setOutput(outputText)
-        return
+        result = await submitSql(sessionId, problemId, code, remainingTime > 0 ? 7200 - remainingTime : 0)
+      } else {
+        result = await submitCode(sessionId, problemId, code, remainingTime > 0 ? 7200 - remainingTime : 0)
       }
-
-      // Handle Python problems (existing logic)
-      const result = await submitCode(sessionId, problemId, code, getTimeTaken())
+      
       setSubmitResult(result)
       
       let outputText = `✓ Submission Complete\n\n`
@@ -208,7 +264,7 @@ function CodingPage() {
       
       if (result.failed_details && result.failed_details.length > 0) {
         outputText += `Failed Test Cases:\n`
-        result.failed_details.forEach((detail, idx) => {
+        result.failed_details.forEach((detail) => {
           outputText += `\nTest Case ${detail.test_case}:\n`
           if (detail.error) {
             outputText += `Error: ${detail.error}\n`
@@ -222,6 +278,16 @@ function CodingPage() {
       }
       
       setOutput(outputText)
+      
+      // Update saved answer after successful submit
+      if (isExamMode) {
+        const answers = JSON.parse(localStorage.getItem('exam_answers') || '{}')
+        answers[problemId] = {
+          code: code,
+          language: problem.language
+        }
+        localStorage.setItem('exam_answers', JSON.stringify(answers))
+      }
     } catch (err) {
       setError('Failed to submit code: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -248,11 +314,25 @@ function CodingPage() {
   return (
     <div className="coding-page">
       <div className="header">
-        <h1>{problem.title}</h1>
+        <div className="header-left">
+          {isExamMode && (
+            <button onClick={handleBack} className="btn-back-coding">
+              ← Back
+            </button>
+          )}
+          <h1>{problem.title}</h1>
+        </div>
         <div className="user-info">
-          <span className="timer">{formatTime(elapsedTime)}</span>
+          {isExamMode && (
+            <div className={getTimerClass()}>
+              <span className="timer-icon">⏱️</span>
+              <span className="timer-value">{formatTime(remainingTime)}</span>
+            </div>
+          )}
           <span>{userName}</span>
-          <button onClick={handleLogout} className="btn-logout">Logout</button>
+          {!isExamMode && (
+            <button onClick={handleLogout} className="btn-logout">Logout</button>
+          )}
         </div>
       </div>
 
@@ -281,6 +361,7 @@ function CodingPage() {
         <div className="editor-panel">
           <div className="editor-header">
             <span>Language: {problem.language === 'sql' ? 'SQL' : 'Python'}</span>
+            {isExamMode && <span className="auto-save-indicator">Auto-saving...</span>}
           </div>
           <div className="editor-container">
             <Editor

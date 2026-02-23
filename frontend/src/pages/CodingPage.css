@@ -15,6 +15,28 @@
   border-bottom: 1px solid #3e3e42;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.btn-back-coding {
+  padding: 8px 16px;
+  background-color: transparent;
+  color: #9ba4b4;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.btn-back-coding:hover {
+  background-color: #3e3e42;
+  color: #fff;
+}
+
 .header h1 {
   font-size: 20px;
   font-weight: 600;
@@ -27,6 +49,50 @@
   align-items: center;
   gap: 15px;
   color: #d4d4d4;
+}
+
+.global-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #1e1e1e;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 2px solid #00d9ff;
+}
+
+.global-timer .timer-icon {
+  font-size: 16px;
+}
+
+.global-timer .timer-value {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: #00d9ff;
+  letter-spacing: 1px;
+}
+
+.global-timer.warning {
+  border-color: #ff9800;
+}
+
+.global-timer.warning .timer-value {
+  color: #ff9800;
+}
+
+.global-timer.critical {
+  border-color: #f44336;
+  animation: pulse 1s infinite;
+}
+
+.global-timer.critical .timer-value {
+  color: #f44336;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .timer {
@@ -117,6 +183,15 @@
   border-bottom: 1px solid #3e3e42;
   font-size: 13px;
   color: #d4d4d4;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auto-save-indicator {
+  color: #4caf50;
+  font-size: 12px;
+  font-style: italic;
 }
 
 .editor-container {

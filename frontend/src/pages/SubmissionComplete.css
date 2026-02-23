@@ -1,0 +1,146 @@
+.submission-complete-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.submission-content {
+  background-color: #16213e;
+  border-radius: 20px;
+  padding: 50px;
+  max-width: 550px;
+  width: 100%;
+  text-align: center;
+  border: 1px solid #0f3460;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.success-icon {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 50px;
+  color: #fff;
+  margin: 0 auto 30px;
+}
+
+.submission-content h1 {
+  color: #fff;
+  font-size: 28px;
+  margin-bottom: 15px;
+}
+
+.submission-message {
+  color: #9ba4b4;
+  font-size: 16px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.candidate-name {
+  color: #00d9ff;
+  font-size: 16px;
+  margin-bottom: 30px;
+}
+
+.candidate-name strong {
+  color: #fff;
+}
+
+.info-card {
+  background-color: #1a1a2e;
+  border-radius: 12px;
+  padding: 25px;
+  margin-bottom: 30px;
+  text-align: left;
+  border: 1px solid #0f3460;
+}
+
+.info-card h3 {
+  color: #00d9ff;
+  font-size: 16px;
+  margin-bottom: 15px;
+}
+
+.info-card ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.info-card li {
+  color: #9ba4b4;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.submission-details {
+  background-color: #1a1a2e;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 30px;
+  border: 1px solid #0f3460;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+}
+
+.detail-item:not(:last-child) {
+  border-bottom: 1px solid #0f3460;
+}
+
+.detail-label {
+  color: #9ba4b4;
+  font-size: 14px;
+}
+
+.detail-value {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.thank-you-message {
+  margin-bottom: 30px;
+}
+
+.thank-you-message p {
+  color: #9ba4b4;
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+.good-luck {
+  color: #4caf50 !important;
+  font-size: 20px !important;
+  font-weight: 600;
+}
+
+.btn-finish {
+  padding: 16px 50px;
+  background: linear-gradient(135deg, #00d9ff 0%, #0077b6 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.3s;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.btn-finish:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 217, 255, 0.3);
+}
