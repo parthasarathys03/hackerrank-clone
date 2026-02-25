@@ -276,7 +276,6 @@ Project Root
     ├── QUICKSTART.md    → Quick start guide
     └── ARCHITECTURE.md  → This file
 ```
-
 ## Security Considerations
 
 ### Current Implementation (Development):
